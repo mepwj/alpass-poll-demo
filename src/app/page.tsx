@@ -35,6 +35,8 @@ export default function Home() {
   const [totalBlocks, setTotalBlocks] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [randomOrg, setRandomOrg] = useState(pickRandom);
+  const [registeredOrg, setRegisteredOrg] = useState<{ name: string; code: string } | null>(null);
+  const [mockAlert, setMockAlert] = useState<{ type: string; message: string } | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
 
   const addLog = useCallback((type: LogEntry["type"], message: string) => {
@@ -54,6 +56,8 @@ export default function Home() {
     setExecutionPath("");
     setDuration(null);
     setTotalBlocks(null);
+    setRegisteredOrg(null);
+    setMockAlert(null);
   }, []);
 
   const handleRegister = useCallback(async () => {
@@ -104,6 +108,9 @@ export default function Home() {
             setDuration(event.durationMillis || null);
             setTotalBlocks(event.totalBlocksExecuted || null);
             addLog("success", `완료! ${event.totalBlocksExecuted}개 블록, ${event.durationMillis}ms`);
+            if (vars && vars.insertOrgnResult != null) {
+              setRegisteredOrg({ name, code });
+            }
           }
           if (event.eventType === "BUSINESS_EXECUTION_ERROR") {
             addLog("error", `실행 실패: ${event.errorMessage}`);
@@ -148,6 +155,8 @@ export default function Home() {
             setDuration(event.durationMillis || null);
             setTotalBlocks(event.totalBlocksExecuted || null);
             addLog("info", `중복 감지로 등록 차단됨 (${event.totalBlocksExecuted}개 블록, ${event.durationMillis}ms)`);
+            setMockAlert({ type: "duplicate", message: "이미 등록된 조직코드입니다.\n코드: ALPASS" });
+            setTimeout(() => setMockAlert(null), 4000);
           }
         },
         () => setLoading(false)
@@ -187,6 +196,8 @@ export default function Home() {
             setDuration(event.durationMillis || null);
             setTotalBlocks(event.totalBlocksExecuted || null);
             addLog("info", `상위조직 미존재로 등록 차단됨 (${event.totalBlocksExecuted}개 블록, ${event.durationMillis}ms)`);
+            setMockAlert({ type: "invalidParent", message: "상위 조직이 존재하지 않습니다.\n코드: INVALID_PARENT" });
+            setTimeout(() => setMockAlert(null), 4000);
           }
         },
         () => setLoading(false)
@@ -314,7 +325,27 @@ export default function Home() {
             <h2 className="font-semibold text-purple-400">실제 화면 예시</h2>
           </div>
           <div className="p-2 flex-1">
-            <div className="bg-white rounded-lg overflow-hidden border border-gray-300 shadow-lg">
+            <div className="bg-white rounded-lg overflow-hidden border border-gray-300 shadow-lg relative">
+              {/* Mock Alert Modal */}
+              {mockAlert != null && (
+                <div className="absolute inset-0 bg-black/40 z-10 flex items-center justify-center p-4">
+                  <div className="bg-white rounded-lg shadow-xl p-5 max-w-[240px] w-full text-center">
+                    <div className={`text-3xl mb-2 ${mockAlert.type === "duplicate" ? "text-amber-500" : "text-red-500"}`}>
+                      {mockAlert.type === "duplicate" ? "⚠" : "✕"}
+                    </div>
+                    <div className="text-sm font-bold text-gray-800 mb-1">
+                      {mockAlert.type === "duplicate" ? "중복 오류" : "검증 실패"}
+                    </div>
+                    <div className="text-xs text-gray-600 whitespace-pre-line">{mockAlert.message}</div>
+                    <button
+                      onClick={() => setMockAlert(null)}
+                      className="mt-3 px-4 py-1 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300"
+                    >
+                      확인
+                    </button>
+                  </div>
+                </div>
+              )}
               {/* Browser Bar */}
               <div className="bg-gray-200 px-3 py-2 flex items-center gap-2 border-b border-gray-300">
                 <div className="flex gap-1.5">
@@ -331,41 +362,49 @@ export default function Home() {
                 <div className="border-b-2 border-blue-800 pb-2 mb-4">
                   <h3 className="text-base font-bold text-blue-900">고객사 조직 등록</h3>
                 </div>
-                <table className="w-full text-xs border-collapse mb-4">
-                  <tbody>
-                    <tr>
-                      <th className="border border-gray-300 bg-blue-50 px-3 py-2 text-left w-28">조직코드</th>
-                      <td className="border border-gray-300 px-3 py-2">
-                        <span className="font-mono bg-gray-100 px-2 py-0.5 rounded">{randomOrg.code}</span>
-                      </td>
-                    </tr>
-                    <tr>
-                      <th className="border border-gray-300 bg-blue-50 px-3 py-2 text-left">조직명</th>
-                      <td className="border border-gray-300 px-3 py-2">{randomOrg.name}</td>
-                    </tr>
-                    <tr>
-                      <th className="border border-gray-300 bg-blue-50 px-3 py-2 text-left">조직유형</th>
-                      <td className="border border-gray-300 px-3 py-2">DEPT (부서)</td>
-                    </tr>
-                    <tr>
-                      <th className="border border-gray-300 bg-blue-50 px-3 py-2 text-left">상위조직</th>
-                      <td className="border border-gray-300 px-3 py-2">ROOT (ALPASS HEADQUARTERS)</td>
-                    </tr>
-                    <tr>
-                      <th className="border border-gray-300 bg-blue-50 px-3 py-2 text-left">지역코드</th>
-                      <td className="border border-gray-300 px-3 py-2">KR</td>
-                    </tr>
-                    <tr>
-                      <th className="border border-gray-300 bg-blue-50 px-3 py-2 text-left">상태</th>
-                      <td className="border border-gray-300 px-3 py-2">
-                        <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded text-[10px]">Active</span>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-                {resultOrgnMgmtCd != null && (
-                  <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-800">
-                    등록 완료 — 관리코드: <span className="font-mono font-bold">{resultOrgnMgmtCd}</span>
+                {registeredOrg != null ? (
+                  <>
+                    <table className="w-full text-xs border-collapse mb-4">
+                      <tbody>
+                        <tr>
+                          <th className="border border-gray-300 bg-blue-50 px-3 py-2 text-left w-28">조직코드</th>
+                          <td className="border border-gray-300 px-3 py-2">
+                            <span className="font-mono bg-gray-100 px-2 py-0.5 rounded">{registeredOrg.code}</span>
+                          </td>
+                        </tr>
+                        <tr>
+                          <th className="border border-gray-300 bg-blue-50 px-3 py-2 text-left">조직명</th>
+                          <td className="border border-gray-300 px-3 py-2">{registeredOrg.name}</td>
+                        </tr>
+                        <tr>
+                          <th className="border border-gray-300 bg-blue-50 px-3 py-2 text-left">조직유형</th>
+                          <td className="border border-gray-300 px-3 py-2">DEPT (부서)</td>
+                        </tr>
+                        <tr>
+                          <th className="border border-gray-300 bg-blue-50 px-3 py-2 text-left">상위조직</th>
+                          <td className="border border-gray-300 px-3 py-2">ROOT (ALPASS HEADQUARTERS)</td>
+                        </tr>
+                        <tr>
+                          <th className="border border-gray-300 bg-blue-50 px-3 py-2 text-left">지역코드</th>
+                          <td className="border border-gray-300 px-3 py-2">KR</td>
+                        </tr>
+                        <tr>
+                          <th className="border border-gray-300 bg-blue-50 px-3 py-2 text-left">상태</th>
+                          <td className="border border-gray-300 px-3 py-2">
+                            <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded text-[10px]">Active</span>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    {resultOrgnMgmtCd != null && (
+                      <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-800">
+                        등록 완료 — 관리코드: <span className="font-mono font-bold">{resultOrgnMgmtCd}</span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center py-8 text-gray-400 text-sm">
+                    조직 등록 버튼을 클릭하세요
                   </div>
                 )}
                 <div className="flex justify-center gap-2">
