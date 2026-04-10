@@ -5,11 +5,11 @@ import {
   executeWorkflow,
   streamExecution,
   SSEEvent,
-  PollItem,
-  RANDOM_POLL_ITEMS,
+  RANDOM_ORGN_NAMES,
+  RANDOM_ORGN_CODES,
 } from "@/lib/api";
 
-const BUSINESS_ID = process.env.NEXT_PUBLIC_BUSINESS_ID || "3162";
+const BUSINESS_ID = process.env.NEXT_PUBLIC_BUSINESS_ID || "1768";
 
 interface LogEntry {
   time: string;
@@ -17,171 +17,220 @@ interface LogEntry {
   message: string;
 }
 
+function pickRandom() {
+  const idx = Math.floor(Math.random() * RANDOM_ORGN_NAMES.length);
+  const suffix = String(Math.floor(Math.random() * 100)).padStart(2, "0");
+  return { name: RANDOM_ORGN_NAMES[idx], code: RANDOM_ORGN_CODES[idx] + suffix };
+}
+
 export default function Home() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [resultList, setResultList] = useState<PollItem[] | null>(null);
+  const [resultOrgnCd, setResultOrgnCd] = useState<string | null>(null);
+  const [resultOrgnNm, setResultOrgnNm] = useState<string | null>(null);
+  const [resultOrgnMgmtCd, setResultOrgnMgmtCd] = useState<number | null>(null);
   const [insertCount, setInsertCount] = useState<number | null>(null);
-  const [deleteCount, setDeleteCount] = useState<number | null>(null);
+  const [histInsertCount, setHistInsertCount] = useState<number | null>(null);
   const [executionPath, setExecutionPath] = useState("");
   const [duration, setDuration] = useState<number | null>(null);
+  const [totalBlocks, setTotalBlocks] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
-  const [deleteId, setDeleteId] = useState("");
-  const [randomItemName, setRandomItemName] = useState(
-    () => RANDOM_POLL_ITEMS[Math.floor(Math.random() * RANDOM_POLL_ITEMS.length)]
-  );
+  const [randomOrg, setRandomOrg] = useState(pickRandom);
   const logEndRef = useRef<HTMLDivElement>(null);
 
-  const addLog = useCallback(
-    (type: LogEntry["type"], message: string) => {
-      const time = new Date().toLocaleTimeString("ko-KR", {
-        hour12: false,
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      });
-      setLogs((prev) => [...prev, { time, type, message }]);
-      setTimeout(() => logEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
-    },
-    []
-  );
-
-  const clearResults = useCallback(() => {
-    setResultList(null);
-    setInsertCount(null);
-    setDeleteCount(null);
-    setExecutionPath("");
-    setDuration(null);
+  const addLog = useCallback((type: LogEntry["type"], message: string) => {
+    const time = new Date().toLocaleTimeString("ko-KR", {
+      hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit",
+    });
+    setLogs((prev) => [...prev, { time, type, message }]);
+    setTimeout(() => logEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
   }, []);
 
-  const runAction = useCallback(
-    async (action: string, extraVars: Record<string, string> = {}) => {
-      if (loading) return;
-      setLoading(true);
-      clearResults();
-      setLogs([]);
+  const clearResults = useCallback(() => {
+    setResultOrgnCd(null);
+    setResultOrgnNm(null);
+    setResultOrgnMgmtCd(null);
+    setInsertCount(null);
+    setHistInsertCount(null);
+    setExecutionPath("");
+    setDuration(null);
+    setTotalBlocks(null);
+  }, []);
 
-      const inputVariables: Record<string, string> = {
-        action,
-        pollId: "POLL001",
-        ...extraVars,
-      };
+  const handleRegister = useCallback(async () => {
+    if (loading) return;
+    setLoading(true);
+    clearResults();
+    setLogs([]);
 
-      addLog("info", `[${action.toUpperCase()}] 실행 요청...`);
+    const { name, code } = randomOrg;
+    const inputVariables: Record<string, string> = {
+      orgnCd: code,
+      orgnNm: name,
+      uprOrgnMgmtCd: "ROOT",
+      orgnPath: `/ROOT/${code}`,
+    };
 
-      try {
-        const executionId = await executeWorkflow(BUSINESS_ID, inputVariables);
-        addLog("info", `실행 ID: ${executionId.slice(0, 8)}...`);
+    addLog("info", `[조직 등록] ${name} (${code})`);
 
-        streamExecution(
-          executionId,
-          (event: SSEEvent) => {
-            if (event.eventType === "BLOCK_EXECUTION_STARTED" && event.blockName) {
-              addLog("block", `▶ ${event.blockName} (${event.blockType})`);
+    try {
+      const executionId = await executeWorkflow(BUSINESS_ID, inputVariables);
+      addLog("info", `실행 ID: ${executionId.slice(0, 8)}...`);
+
+      streamExecution(
+        executionId,
+        (event: SSEEvent) => {
+          if (event.eventType === "BLOCK_EXECUTION_STARTED" && event.blockName) {
+            addLog("block", `▶ ${event.blockName} (${event.blockType})`);
+          }
+          if (event.eventType === "BLOCK_EXECUTION_COMPLETED" && event.blockName) {
+            addLog("success", `✓ ${event.blockName} — ${event.executionTimeMs}ms`);
+          }
+          if (event.eventType === "BLOCK_EXECUTION_ERROR") {
+            addLog("error", `✗ ${event.blockName}: ${event.errorMessage}`);
+          }
+          if (event.eventType === "BUSINESS_EXECUTION_COMPLETED") {
+            const vars = event.finalVariables;
+            if (vars) {
+              if (vars.orgnCd != null) setResultOrgnCd(String(vars.orgnCd));
+              if (vars.orgnNm != null) setResultOrgnNm(String(vars.orgnNm));
+              if (vars.orgnMgmtCd != null)
+                setResultOrgnMgmtCd(vars.orgnMgmtCd[0]?.ORGNMGMTCD ?? null);
+              if (vars.insertOrgnResult != null)
+                setInsertCount(vars.insertOrgnResult[0]?.affected_rows ?? 0);
+              if (vars.insertOrgnHistResult != null)
+                setHistInsertCount(vars.insertOrgnHistResult[0]?.affected_rows ?? 0);
             }
-            if (event.eventType === "BLOCK_EXECUTION_COMPLETED" && event.blockName) {
-              addLog(
-                "success",
-                `✓ ${event.blockName} — ${event.executionTimeMs}ms`
-              );
-            }
-            if (event.eventType === "BUSINESS_EXECUTION_COMPLETED") {
-              const vars = event.finalVariables;
-              if (vars) {
-                if (vars.resultList != null) setResultList(vars.resultList);
-                if (vars.insertCount != null)
-                  setInsertCount(vars.insertCount[0]?.affected_rows ?? 0);
-                if (vars.deleteCount != null)
-                  setDeleteCount(vars.deleteCount[0]?.affected_rows ?? 0);
-              }
-              setExecutionPath(event.executedBlocksSummary || "");
-              setDuration(event.durationMillis || null);
-              addLog(
-                "success",
-                `완료! ${event.totalBlocksExecuted}개 블록, ${event.durationMillis}ms`
-              );
-            }
-            if (event.eventType === "BUSINESS_EXECUTION_FAILED") {
-              addLog("error", "실행 실패!");
-            }
-          },
-          () => setLoading(false)
-        );
-      } catch (err) {
-        addLog("error", `오류: ${err instanceof Error ? err.message : String(err)}`);
-        setLoading(false);
-      }
-    },
-    [loading, addLog, clearResults]
-  );
+            setExecutionPath(event.executedBlocksSummary || "");
+            setDuration(event.durationMillis || null);
+            setTotalBlocks(event.totalBlocksExecuted || null);
+            addLog("success", `완료! ${event.totalBlocksExecuted}개 블록, ${event.durationMillis}ms`);
+          }
+          if (event.eventType === "BUSINESS_EXECUTION_ERROR") {
+            addLog("error", `실행 실패: ${event.errorMessage}`);
+          }
+        },
+        () => setLoading(false)
+      );
+    } catch (err) {
+      addLog("error", `오류: ${err instanceof Error ? err.message : String(err)}`);
+      setLoading(false);
+    }
 
-  const handleList = () => runAction("list");
+    setRandomOrg(pickRandom());
+  }, [loading, randomOrg, addLog, clearResults]);
 
-  const handleCreate = () => {
-    const iemId = `IEM${String(Math.floor(Math.random() * 10000)).padStart(4, "0")}`;
-    runAction("create", {
-      pollIemId: iemId,
-      pollIemNm: randomItemName,
-    });
-    setRandomItemName(
-      RANDOM_POLL_ITEMS[Math.floor(Math.random() * RANDOM_POLL_ITEMS.length)]
-    );
-  };
+  const handleDupTest = useCallback(async () => {
+    if (loading) return;
+    setLoading(true);
+    clearResults();
+    setLogs([]);
 
-  const handleDelete = (iemId?: string) => {
-    const target = iemId || deleteId.trim();
-    if (!target) return;
-    const fullId = target.startsWith("IEM") ? target : `IEM${target}`;
-    if (!/^IEM\w+$/.test(fullId)) return;
-    runAction("delete", { pollIemId: fullId });
-    setDeleteId("");
-  };
+    addLog("info", `[중복 테스트] ALPASS (기존 조직코드)`);
+
+    try {
+      const executionId = await executeWorkflow(BUSINESS_ID, {
+        orgnCd: "ALPASS",
+        orgnNm: "중복테스트",
+        uprOrgnMgmtCd: "ROOT",
+        orgnPath: "/ROOT/DUP",
+      });
+      addLog("info", `실행 ID: ${executionId.slice(0, 8)}...`);
+
+      streamExecution(
+        executionId,
+        (event: SSEEvent) => {
+          if (event.eventType === "BLOCK_EXECUTION_STARTED" && event.blockName)
+            addLog("block", `▶ ${event.blockName} (${event.blockType})`);
+          if (event.eventType === "BLOCK_EXECUTION_COMPLETED" && event.blockName)
+            addLog("success", `✓ ${event.blockName} — ${event.executionTimeMs}ms`);
+          if (event.eventType === "BUSINESS_EXECUTION_COMPLETED") {
+            setExecutionPath(event.executedBlocksSummary || "");
+            setDuration(event.durationMillis || null);
+            setTotalBlocks(event.totalBlocksExecuted || null);
+            addLog("info", `중복 감지로 등록 차단됨 (${event.totalBlocksExecuted}개 블록, ${event.durationMillis}ms)`);
+          }
+        },
+        () => setLoading(false)
+      );
+    } catch (err) {
+      addLog("error", `오류: ${err instanceof Error ? err.message : String(err)}`);
+      setLoading(false);
+    }
+  }, [loading, addLog, clearResults]);
+
+  const handleInvalidParent = useCallback(async () => {
+    if (loading) return;
+    setLoading(true);
+    clearResults();
+    setLogs([]);
+
+    addLog("info", `[상위조직 검증] INVALID_PARENT (없는 상위코드)`);
+
+    try {
+      const executionId = await executeWorkflow(BUSINESS_ID, {
+        orgnCd: "VALID01",
+        orgnNm: "상위조직검증",
+        uprOrgnMgmtCd: "INVALID_PARENT",
+        orgnPath: "/INVALID",
+      });
+      addLog("info", `실행 ID: ${executionId.slice(0, 8)}...`);
+
+      streamExecution(
+        executionId,
+        (event: SSEEvent) => {
+          if (event.eventType === "BLOCK_EXECUTION_STARTED" && event.blockName)
+            addLog("block", `▶ ${event.blockName} (${event.blockType})`);
+          if (event.eventType === "BLOCK_EXECUTION_COMPLETED" && event.blockName)
+            addLog("success", `✓ ${event.blockName} — ${event.executionTimeMs}ms`);
+          if (event.eventType === "BUSINESS_EXECUTION_COMPLETED") {
+            setExecutionPath(event.executedBlocksSummary || "");
+            setDuration(event.durationMillis || null);
+            setTotalBlocks(event.totalBlocksExecuted || null);
+            addLog("info", `상위조직 미존재로 등록 차단됨 (${event.totalBlocksExecuted}개 블록, ${event.durationMillis}ms)`);
+          }
+        },
+        () => setLoading(false)
+      );
+    } catch (err) {
+      addLog("error", `오류: ${err instanceof Error ? err.message : String(err)}`);
+      setLoading(false);
+    }
+  }, [loading, addLog, clearResults]);
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 p-4">
       <header className="mb-6 text-center">
         <h1 className="text-2xl font-bold text-blue-400">
-          알패스 통합업무시스템 — 온라인 설문 항목 관리
+          알패스 통합업무시스템 — 고객사 조직 등록
         </h1>
         <p className="text-sm text-gray-500 mt-1">
-          Workflow #{BUSINESS_ID} | CRUD Demo with Real Oracle DB
+          Workflow #{BUSINESS_ID} | POST /pot/pm/cstm/insertCstmOrgn | Oracle DB
         </p>
       </header>
 
       {/* Action Buttons */}
       <div className="flex justify-center gap-3 mb-6 flex-wrap">
         <button
-          onClick={handleList}
+          onClick={handleRegister}
           disabled={loading}
-          className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 rounded font-medium transition"
+          className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 rounded font-medium transition"
         >
-          {loading ? "실행 중..." : "목록 조회"}
+          {loading ? "실행 중..." : `조직 등록 (${randomOrg.name})`}
         </button>
         <button
-          onClick={handleCreate}
+          onClick={handleDupTest}
           disabled={loading}
-          className="px-5 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-700 rounded font-medium transition"
-          title={`등록될 항목: ${randomItemName}`}
+          className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-700 rounded font-medium transition"
         >
-          항목 등록 ({randomItemName})
+          중복 코드 테스트
         </button>
-        <div className="flex items-center gap-1">
-          <span className="text-gray-500 text-sm">IEM</span>
-          <input
-            type="text"
-            value={deleteId}
-            onChange={(e) => setDeleteId(e.target.value)}
-            placeholder="ID 번호"
-            className="w-20 px-2 py-2 bg-gray-800 border border-gray-700 rounded text-sm"
-            onKeyDown={(e) => e.key === "Enter" && handleDelete()}
-          />
-          <button
-            onClick={() => handleDelete()}
-            disabled={loading || !deleteId.trim()}
-            className="px-5 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 rounded font-medium transition"
-          >
-            삭제
-          </button>
-        </div>
+        <button
+          onClick={handleInvalidParent}
+          disabled={loading}
+          className="px-5 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 rounded font-medium transition"
+        >
+          잘못된 상위조직 테스트
+        </button>
       </div>
 
       {/* 3-Column Layout */}
@@ -191,23 +240,16 @@ export default function Home() {
           <div className="px-4 py-3 border-b border-gray-800 flex justify-between items-center">
             <h2 className="font-semibold text-blue-400">실행 로그</h2>
             {duration != null && (
-              <span className="text-xs text-gray-500">{duration}ms</span>
+              <span className="text-xs text-emerald-400">{totalBlocks}블록 / {duration}ms</span>
             )}
           </div>
-          <div className="p-4 flex-1 overflow-y-auto max-h-[500px] font-mono text-xs space-y-1">
+          <div className="p-4 flex-1 overflow-y-auto max-h-[520px] font-mono text-xs space-y-1">
             {logs.map((log, i) => (
-              <div
-                key={i}
-                className={`${
-                  log.type === "error"
-                    ? "text-red-400"
-                    : log.type === "success"
-                    ? "text-green-400"
-                    : log.type === "block"
-                    ? "text-yellow-300"
-                    : "text-gray-400"
-                }`}
-              >
+              <div key={i} className={
+                log.type === "error" ? "text-red-400" :
+                log.type === "success" ? "text-green-400" :
+                log.type === "block" ? "text-yellow-300" : "text-gray-400"
+              }>
                 <span className="text-gray-600">{log.time}</span> {log.message}
               </div>
             ))}
@@ -217,7 +259,7 @@ export default function Home() {
             <div ref={logEndRef} />
           </div>
           {executionPath && (
-            <div className="px-4 py-2 border-t border-gray-800 text-xs text-gray-500">
+            <div className="px-4 py-2 border-t border-gray-800 text-xs text-gray-500 break-all">
               <span className="text-gray-600">경로:</span> {executionPath}
             </div>
           )}
@@ -228,57 +270,40 @@ export default function Home() {
           <div className="px-4 py-3 border-b border-gray-800">
             <h2 className="font-semibold text-emerald-400">실행 결과</h2>
           </div>
-          <div className="p-4 flex-1 overflow-y-auto max-h-[500px]">
+          <div className="p-4 flex-1 overflow-y-auto max-h-[520px]">
             {insertCount != null && (
-              <div className="mb-4 p-3 bg-green-900/30 border border-green-800 rounded">
-                <span className="text-green-400 font-medium">
-                  INSERT 성공: {insertCount}건
-                </span>
+              <div className="space-y-3">
+                <div className="p-3 bg-green-900/30 border border-green-800 rounded">
+                  <div className="text-green-400 font-medium mb-2">조직 등록 성공</div>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="text-gray-400">관리코드</div>
+                    <div className="font-mono text-blue-300">{resultOrgnMgmtCd}</div>
+                    <div className="text-gray-400">조직코드</div>
+                    <div className="font-mono">{resultOrgnCd}</div>
+                    <div className="text-gray-400">조직명</div>
+                    <div>{resultOrgnNm}</div>
+                    <div className="text-gray-400">INSERT</div>
+                    <div className="text-green-400">{insertCount}건</div>
+                    <div className="text-gray-400">이력 INSERT</div>
+                    <div className="text-green-400">{histInsertCount}건</div>
+                  </div>
+                </div>
               </div>
             )}
-            {deleteCount != null && (
-              <div className="mb-4 p-3 bg-red-900/30 border border-red-800 rounded">
-                <span className="text-red-400 font-medium">
-                  DELETE 성공: {deleteCount}건
-                </span>
-              </div>
-            )}
-            {resultList != null && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-700 text-gray-400">
-                      <th className="py-2 px-2 text-left">항목 ID</th>
-                      <th className="py-2 px-2 text-left">항목명</th>
-                      <th className="py-2 px-2 text-left">등록일</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {resultList.map((item) => (
-                      <tr
-                        key={item.POLL_IEM_ID}
-                        className="border-b border-gray-800 hover:bg-gray-800/50"
-                      >
-                        <td className="py-2 px-2 font-mono text-blue-300 text-xs">
-                          {item.POLL_IEM_ID}
-                        </td>
-                        <td className="py-2 px-2">{item.POLL_IEM_NM}</td>
-                        <td className="py-2 px-2 text-xs text-gray-500">
-                          {new Date(item.FRST_REGIST_PNTTM).toLocaleDateString("ko-KR")}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <p className="mt-2 text-xs text-gray-500">
-                  총 {resultList.length}건
+            {insertCount == null && executionPath && !executionPath.includes("DB(조직정보등록)") && (
+              <div className="p-3 bg-amber-900/30 border border-amber-800 rounded">
+                <div className="text-amber-400 font-medium">등록 차단됨</div>
+                <p className="text-sm text-gray-400 mt-1">
+                  {executionPath.includes("조직코드중복") && !executionPath.includes("상위조직")
+                    ? "조직코드가 이미 존재합니다 (중복 검증 실패)"
+                    : executionPath.includes("상위조직") && !executionPath.includes("조직관리코드생성")
+                    ? "상위 조직이 존재하지 않습니다 (상위조직 검증 실패)"
+                    : "검증 조건에 의해 등록이 차단되었습니다"}
                 </p>
               </div>
             )}
-            {resultList == null && insertCount == null && deleteCount == null && (
-              <p className="text-gray-600 italic text-sm">
-                실행 결과가 여기에 표시됩니다
-              </p>
+            {insertCount == null && !executionPath && (
+              <p className="text-gray-600 italic text-sm">실행 결과가 여기에 표시됩니다</p>
             )}
           </div>
         </div>
@@ -289,7 +314,6 @@ export default function Home() {
             <h2 className="font-semibold text-purple-400">실제 화면 예시</h2>
           </div>
           <div className="p-2 flex-1">
-            {/* Browser Frame */}
             <div className="bg-white rounded-lg overflow-hidden border border-gray-300 shadow-lg">
               {/* Browser Bar */}
               <div className="bg-gray-200 px-3 py-2 flex items-center gap-2 border-b border-gray-300">
@@ -299,78 +323,65 @@ export default function Home() {
                   <div className="w-3 h-3 rounded-full bg-green-400" />
                 </div>
                 <div className="flex-1 bg-white rounded px-3 py-0.5 text-xs text-gray-500 font-mono">
-                  https://alpass.go.kr/uss/olp/opm/listOnlinePollItem.do
+                  https://alpass.go.kr/pot/pm/cstm/insertCstmOrgn
                 </div>
               </div>
-              {/* eGov Style Content */}
+              {/* eGov Style Form */}
               <div className="p-4 text-gray-800">
                 <div className="border-b-2 border-blue-800 pb-2 mb-4">
-                  <h3 className="text-base font-bold text-blue-900">
-                    온라인 설문 항목 관리
-                  </h3>
+                  <h3 className="text-base font-bold text-blue-900">고객사 조직 등록</h3>
                 </div>
-                {resultList != null ? (
-                  <table className="w-full text-xs border-collapse">
-                    <thead>
-                      <tr className="bg-blue-50">
-                        <th className="border border-gray-300 px-2 py-1.5 text-center">
-                          No.
-                        </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center">
-                          항목ID
-                        </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center">
-                          항목명
-                        </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center">
-                          관리
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {resultList.map((item, i) => (
-                        <tr key={item.POLL_IEM_ID} className="hover:bg-gray-50">
-                          <td className="border border-gray-300 px-2 py-1.5 text-center">
-                            {i + 1}
-                          </td>
-                          <td className="border border-gray-300 px-2 py-1.5 text-center font-mono">
-                            {item.POLL_IEM_ID}
-                          </td>
-                          <td className="border border-gray-300 px-2 py-1.5">
-                            {item.POLL_IEM_NM}
-                          </td>
-                          <td className="border border-gray-300 px-2 py-1.5 text-center">
-                            <button
-                              onClick={() => handleDelete(item.POLL_IEM_ID)}
-                              disabled={loading}
-                              className="px-2 py-0.5 bg-red-500 text-white rounded text-[10px] hover:bg-red-600 disabled:bg-gray-400"
-                            >
-                              삭제
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div className="text-center py-8 text-gray-400 text-sm">
-                    목록 조회 버튼을 클릭하세요
+                <table className="w-full text-xs border-collapse mb-4">
+                  <tbody>
+                    <tr>
+                      <th className="border border-gray-300 bg-blue-50 px-3 py-2 text-left w-28">조직코드</th>
+                      <td className="border border-gray-300 px-3 py-2">
+                        <span className="font-mono bg-gray-100 px-2 py-0.5 rounded">{randomOrg.code}</span>
+                      </td>
+                    </tr>
+                    <tr>
+                      <th className="border border-gray-300 bg-blue-50 px-3 py-2 text-left">조직명</th>
+                      <td className="border border-gray-300 px-3 py-2">{randomOrg.name}</td>
+                    </tr>
+                    <tr>
+                      <th className="border border-gray-300 bg-blue-50 px-3 py-2 text-left">조직유형</th>
+                      <td className="border border-gray-300 px-3 py-2">DEPT (부서)</td>
+                    </tr>
+                    <tr>
+                      <th className="border border-gray-300 bg-blue-50 px-3 py-2 text-left">상위조직</th>
+                      <td className="border border-gray-300 px-3 py-2">ROOT (ALPASS HEADQUARTERS)</td>
+                    </tr>
+                    <tr>
+                      <th className="border border-gray-300 bg-blue-50 px-3 py-2 text-left">지역코드</th>
+                      <td className="border border-gray-300 px-3 py-2">KR</td>
+                    </tr>
+                    <tr>
+                      <th className="border border-gray-300 bg-blue-50 px-3 py-2 text-left">상태</th>
+                      <td className="border border-gray-300 px-3 py-2">
+                        <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded text-[10px]">Active</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                {resultOrgnMgmtCd != null && (
+                  <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-800">
+                    등록 완료 — 관리코드: <span className="font-mono font-bold">{resultOrgnMgmtCd}</span>
                   </div>
                 )}
-                <div className="mt-3 flex justify-center gap-2">
+                <div className="flex justify-center gap-2">
                   <button
-                    onClick={handleList}
+                    onClick={handleRegister}
                     disabled={loading}
-                    className="px-3 py-1 bg-blue-800 text-white rounded text-xs hover:bg-blue-900 disabled:bg-gray-400"
-                  >
-                    조회
-                  </button>
-                  <button
-                    onClick={handleCreate}
-                    disabled={loading}
-                    className="px-3 py-1 bg-green-700 text-white rounded text-xs hover:bg-green-800 disabled:bg-gray-400"
+                    className="px-4 py-1.5 bg-blue-800 text-white rounded text-xs hover:bg-blue-900 disabled:bg-gray-400"
                   >
                     등록
+                  </button>
+                  <button
+                    onClick={handleDupTest}
+                    disabled={loading}
+                    className="px-4 py-1.5 bg-gray-500 text-white rounded text-xs hover:bg-gray-600 disabled:bg-gray-400"
+                  >
+                    중복 테스트
                   </button>
                 </div>
               </div>
@@ -380,7 +391,7 @@ export default function Home() {
       </div>
 
       <footer className="text-center mt-8 text-xs text-gray-600">
-        Powered by Greedy Workflow Engine | Oracle 11g XE | Business #{BUSINESS_ID}
+        Powered by Greedy Workflow Engine | Oracle 11g XE | 알패스 Business #{BUSINESS_ID}
       </footer>
     </div>
   );

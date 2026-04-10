@@ -1,20 +1,11 @@
-export interface PollItem {
-  POLL_ID: string;
-  POLL_IEM_ID: string;
-  POLL_IEM_NM: string;
-  FRST_REGIST_PNTTM: string;
-  LAST_UPDT_PNTTM: string;
-}
-
 export interface ExecutionResult {
-  resultList: PollItem[] | null;
-  insertCount: { affected_rows: number }[] | null;
-  deleteCount: { affected_rows: number }[] | null;
-  updateCount: { affected_rows: number }[] | null;
-  pollKindCodeList: unknown[] | null;
-  onlinePollItem: unknown | null;
-  redirectUrl: string | null;
-  paginationInfo: unknown | null;
+  orgnMgmtCd: { ORGNMGMTCD: number }[] | null;
+  orgnCd: string | null;
+  orgnNm: string | null;
+  insertOrgnResult: { affected_rows: number }[] | null;
+  insertOrgnHistResult: { affected_rows: number }[] | null;
+  orgnCdDupCount: { ORGNCDDUPCOUNT: number }[] | null;
+  parentOrgnCnt: { PARENTORGNCNT: number }[] | null;
 }
 
 export interface SSEEvent {
@@ -28,7 +19,7 @@ export interface SSEEvent {
   durationMillis?: number;
   finalVariables?: ExecutionResult;
   totalBlocksExecuted?: number;
-  afterVariables?: Record<string, unknown>;
+  errorMessage?: string;
 }
 
 export async function executeWorkflow(
@@ -57,7 +48,8 @@ export function streamExecution(
     onEvent(data);
     if (
       data.eventType === "BUSINESS_EXECUTION_COMPLETED" ||
-      data.eventType === "BUSINESS_EXECUTION_FAILED"
+      data.eventType === "BUSINESS_EXECUTION_FAILED" ||
+      data.eventType === "BUSINESS_EXECUTION_ERROR"
     ) {
       evtSource.close();
       onDone();
@@ -72,15 +64,20 @@ export function streamExecution(
   return () => evtSource.close();
 }
 
-export const RANDOM_POLL_ITEMS = [
-  "대기실 청결도",
-  "안내데스크 친절도",
-  "주차장 접근성",
-  "화장실 청결도",
-  "엘리베이터 이용 편의성",
-  "소음 관리 수준",
-  "냉난방 적정성",
-  "무선인터넷 품질",
-  "식당 메뉴 만족도",
-  "보안 시스템 신뢰도",
+export const RANDOM_ORGN_NAMES = [
+  "경영지원팀",
+  "법률검토과",
+  "감사지원실",
+  "정보보안팀",
+  "인사관리과",
+  "재정운영팀",
+  "민원처리반",
+  "시설관리과",
+  "전산운영팀",
+  "대외협력실",
+];
+
+export const RANDOM_ORGN_CODES = [
+  "MGMT", "LREV", "AUDS", "ISEC", "HRMG",
+  "FINC", "CVAF", "FMGT", "ITOP", "EXTC",
 ];
